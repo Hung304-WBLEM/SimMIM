@@ -17,9 +17,9 @@ import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 from timm.utils import AverageMeter
 
-from config import get_config
+from simm_config import get_config
 from models import build_model
-from data import build_loader
+from data import build_loader, build_custom_loader
 from lr_scheduler import build_scheduler
 from optimizer import build_optimizer
 from logger import create_logger
@@ -44,7 +44,7 @@ def parse_option():
 
     # easy config modification
     parser.add_argument('--batch-size', type=int, help="batch size for single GPU")
-    parser.add_argument('--data-path', type=str, help='path to dataset')
+    parser.add_argument('--data-path', default='', type=str, help='path to dataset')
     parser.add_argument('--resume', help='resume from checkpoint')
     parser.add_argument('--accumulation-steps', type=int, help="gradient accumulation steps")
     parser.add_argument('--use-checkpoint', action='store_true',
@@ -58,6 +58,10 @@ def parse_option():
     # distributed training
     parser.add_argument("--local_rank", type=int, required=True, help='local rank for DistributedDataParallel')
 
+    # My arguments
+    parser.add_argument("-d", "--dataset",
+                        help="Name of the available datasets")
+
     args = parser.parse_args()
 
     config = get_config(args)
@@ -65,8 +69,9 @@ def parse_option():
     return args, config
 
 
-def main(config):
-    data_loader_train = build_loader(config, logger, is_pretrain=True)
+def main(args, config):
+    # data_loader_train = build_loader(config, logger, is_pretrain=True)
+    data_loader_train = build_custom_loader(args, config, logger, is_pretrain=True)
 
     logger.info(f"Creating model:{config.MODEL.TYPE}/{config.MODEL.NAME}")
     model = build_model(config, is_pretrain=True)
@@ -193,7 +198,7 @@ def train_one_epoch(config, model, data_loader, optimizer, epoch, lr_scheduler):
 
 
 if __name__ == '__main__':
-    _, config = parse_option()
+    args, config = parse_option()
 
     if config.AMP_OPT_LEVEL != "O0":
         assert amp is not None, "amp not installed!"
@@ -241,4 +246,4 @@ if __name__ == '__main__':
     # print config
     logger.info(config.dump())
 
-    main(config)
+    main(args, config)

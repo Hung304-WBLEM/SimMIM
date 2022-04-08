@@ -19,7 +19,7 @@ import torch.distributed as dist
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.utils import accuracy, AverageMeter
 
-from config import get_config
+from simm_config import get_config
 from models import build_model
 from data import build_loader
 from lr_scheduler import build_scheduler
@@ -62,6 +62,10 @@ def parse_option():
 
     # distributed training
     parser.add_argument("--local_rank", type=int, required=True, help='local rank for DistributedDataParallel')
+    # My arguments
+    parser.add_argument("-d", "--dataset",
+                        help="Name of the available datasets")
+
 
     args = parser.parse_args()
 

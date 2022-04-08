@@ -17,6 +17,7 @@ from torch.utils.data._utils.collate import default_collate
 from torchvision.datasets import ImageFolder
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
+from features_classification.datasets import cbis_ddsm, combined_datasets
 
 class MaskGenerator:
     def __init__(self, input_size=192, mask_patch_size=32, model_patch_size=4, mask_ratio=0.6):
@@ -80,6 +81,9 @@ def collate_fn(batch):
     if not isinstance(batch[0][0], tuple):
         return default_collate(batch)
     else:
+        print(batch)
+        while True:
+            continue
         batch_num = len(batch)
         ret = []
         for item_idx in range(len(batch[0][0])):
@@ -91,6 +95,20 @@ def collate_fn(batch):
         return ret
 
 
+def custom_collate_fn(batch):
+    '''My custom collate function for my custom datasets'''
+    batch = [((sample['image'][0], sample['image'][1]), sample['label']) for sample in batch]
+    batch_num = len(batch)
+    ret = []
+    for item_idx in range(len(batch[0][0])):
+        if batch[0][0][item_idx] is None:
+            ret.append(None)
+        else:
+            ret.append(default_collate([batch[i][0][item_idx] for i in range(batch_num)]))
+    ret.append(default_collate([batch[i][1] for i in range(batch_num)]))
+    return ret
+
+
 def build_loader_simmim(config, logger):
     transform = SimMIMTransform(config)
     logger.info(f'Pre-train data transform:\n{transform}')
@@ -100,5 +118,29 @@ def build_loader_simmim(config, logger):
     
     sampler = DistributedSampler(dataset, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=True)
     dataloader = DataLoader(dataset, config.DATA.BATCH_SIZE, sampler=sampler, num_workers=config.DATA.NUM_WORKERS, pin_memory=True, drop_last=True, collate_fn=collate_fn)
+    
+    return dataloader
+
+
+def build_custom_loader_simmim(args, config, logger):
+    transform = SimMIMTransform(config)
+    logger.info(f'Pre-train data transform:\n{transform}')
+
+    data_transforms = {
+        'train': transform,
+        'val': transform,
+        'test': transform
+    }
+    if args.dataset in 'five_classes_mass_calc_pathology':
+        _, dataset, _ = cbis_ddsm.initialize(args, data_transforms)
+    elif args.dataset in ['combined_datasets', 'aug_combined_datasets',
+                          'image_lesion_combined_datasets']:
+        _, dataset, _ = combined_datasets.initialize(args, data_transforms)
+
+    dataset = dataset['train']
+    logger.info(f'Build dataset: train images = {len(dataset)}')
+    
+    sampler = DistributedSampler(dataset, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=True)
+    dataloader = DataLoader(dataset, config.DATA.BATCH_SIZE, sampler=sampler, num_workers=config.DATA.NUM_WORKERS, pin_memory=True, drop_last=True, collate_fn=custom_collate_fn)
     
     return dataloader

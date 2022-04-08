@@ -19,15 +19,18 @@ except ImportError:
     amp = None
 
 
-def load_checkpoint(config, model, optimizer, lr_scheduler, logger):
-    logger.info(f">>>>>>>>>> Resuming from {config.MODEL.RESUME} ..........")
+def load_checkpoint(config, model, optimizer, lr_scheduler, logger=None):
+    if logger is not None:
+        logger.info(f">>>>>>>>>> Resuming from {config.MODEL.RESUME} ..........")
     if config.MODEL.RESUME.startswith('https'):
         checkpoint = torch.hub.load_state_dict_from_url(
             config.MODEL.RESUME, map_location='cpu', check_hash=True)
     else:
         checkpoint = torch.load(config.MODEL.RESUME, map_location='cpu')
     msg = model.load_state_dict(checkpoint['model'], strict=False)
-    logger.info(msg)
+    print(msg)
+    if logger is not None:
+        logger.info(msg)
     max_accuracy = 0.0
     if not config.EVAL_MODE and 'optimizer' in checkpoint and 'lr_scheduler' in checkpoint and 'epoch' in checkpoint:
         optimizer.load_state_dict(checkpoint['optimizer'])
@@ -37,7 +40,9 @@ def load_checkpoint(config, model, optimizer, lr_scheduler, logger):
         config.freeze()
         if 'amp' in checkpoint and config.AMP_OPT_LEVEL != "O0" and checkpoint['config'].AMP_OPT_LEVEL != "O0":
             amp.load_state_dict(checkpoint['amp'])
-        logger.info(f"=> loaded successfully '{config.MODEL.RESUME}' (epoch {checkpoint['epoch']})")
+
+        if logger is not None:
+            logger.info(f"=> loaded successfully '{config.MODEL.RESUME}' (epoch {checkpoint['epoch']})")
         if 'max_accuracy' in checkpoint:
             max_accuracy = checkpoint['max_accuracy']
 
@@ -46,7 +51,7 @@ def load_checkpoint(config, model, optimizer, lr_scheduler, logger):
     return max_accuracy
 
 
-def save_checkpoint(config, epoch, model, max_accuracy, optimizer, lr_scheduler, logger):
+def save_checkpoint(config, epoch, model, max_accuracy, optimizer, lr_scheduler, logger=None):
     save_state = {'model': model.state_dict(),
                   'optimizer': optimizer.state_dict(),
                   'lr_scheduler': lr_scheduler.state_dict(),
@@ -57,9 +62,11 @@ def save_checkpoint(config, epoch, model, max_accuracy, optimizer, lr_scheduler,
         save_state['amp'] = amp.state_dict()
 
     save_path = os.path.join(config.OUTPUT, f'ckpt_epoch_{epoch}.pth')
-    logger.info(f"{save_path} saving......")
+    if logger is not None:
+        logger.info(f"{save_path} saving......")
     torch.save(save_state, save_path)
-    logger.info(f"{save_path} saved !!!")
+    if logger is not None:
+        logger.info(f"{save_path} saved !!!")
 
 
 def get_grad_norm(parameters, norm_type=2):
@@ -75,13 +82,15 @@ def get_grad_norm(parameters, norm_type=2):
     return total_norm
 
 
-def auto_resume_helper(output_dir, logger):
+def auto_resume_helper(output_dir, logger=None):
     checkpoints = os.listdir(output_dir)
     checkpoints = [ckpt for ckpt in checkpoints if ckpt.endswith('pth')]
-    logger.info(f"All checkpoints founded in {output_dir}: {checkpoints}")
+    if logger is not None:
+        logger.info(f"All checkpoints founded in {output_dir}: {checkpoints}")
     if len(checkpoints) > 0:
         latest_checkpoint = max([os.path.join(output_dir, d) for d in checkpoints], key=os.path.getmtime)
-        logger.info(f"The latest checkpoint founded: {latest_checkpoint}")
+        if logger is not None:
+            logger.info(f"The latest checkpoint founded: {latest_checkpoint}")
         resume_file = latest_checkpoint
     else:
         resume_file = None
@@ -95,35 +104,42 @@ def reduce_tensor(tensor):
     return rt
 
 
-def load_pretrained(config, model, logger):
-    logger.info(f">>>>>>>>>> Fine-tuned from {config.PRETRAINED} ..........")
+def load_pretrained(config, model, logger=None):
+    if logger is not None:
+        logger.info(f">>>>>>>>>> Fine-tuned from {config.PRETRAINED} ..........")
     checkpoint = torch.load(config.PRETRAINED, map_location='cpu')
     checkpoint_model = checkpoint['model']
     
     if any([True if 'encoder.' in k else False for k in checkpoint_model.keys()]):
         checkpoint_model = {k.replace('encoder.', ''): v for k, v in checkpoint_model.items() if k.startswith('encoder.')}
-        logger.info('Detect pre-trained model, remove [encoder.] prefix.')
+        if logger is not None:
+            logger.info('Detect pre-trained model, remove [encoder.] prefix.')
     else:
-        logger.info('Detect non-pre-trained model, pass without doing anything.')
+        if logger is not None:
+            logger.info('Detect non-pre-trained model, pass without doing anything.')
 
     if config.MODEL.TYPE == 'swin':
-        logger.info(f">>>>>>>>>> Remapping pre-trained keys for SWIN ..........")
+        if logger is not None:
+            logger.info(f">>>>>>>>>> Remapping pre-trained keys for SWIN ..........")
         checkpoint = remap_pretrained_keys_swin(model, checkpoint_model, logger)
     elif config.MODEL.TYPE == 'vit':
-        logger.info(f">>>>>>>>>> Remapping pre-trained keys for VIT ..........")
+        if logger is not None:
+            logger.info(f">>>>>>>>>> Remapping pre-trained keys for VIT ..........")
         checkpoint = remap_pretrained_keys_vit(model, checkpoint_model, logger)
     else:
         raise NotImplementedError
 
     msg = model.load_state_dict(checkpoint_model, strict=False)
-    logger.info(msg)
+    if logger is not None:
+        logger.info(msg)
     
     del checkpoint
     torch.cuda.empty_cache()
-    logger.info(f">>>>>>>>>> loaded successfully '{config.PRETRAINED}'")
+    if logger is not None:
+        logger.info(f">>>>>>>>>> loaded successfully '{config.PRETRAINED}'")
     
 
-def remap_pretrained_keys_swin(model, checkpoint_model, logger):
+def remap_pretrained_keys_swin(model, checkpoint_model, logger=None):
     state_dict = model.state_dict()
     
     # Geometric interpolation when pre-trained patch size mismatch with fine-tuned patch size
@@ -135,10 +151,12 @@ def remap_pretrained_keys_swin(model, checkpoint_model, logger):
             L1, nH1 = relative_position_bias_table_pretrained.size()
             L2, nH2 = relative_position_bias_table_current.size()
             if nH1 != nH2:
-                logger.info(f"Error in loading {key}, passing......")
+                if logger is not None:
+                    logger.info(f"Error in loading {key}, passing......")
             else:
                 if L1 != L2:
-                    logger.info(f"{key}: Interpolate relative_position_bias_table using geo.")
+                    if logger is not None:
+                        logger.info(f"{key}: Interpolate relative_position_bias_table using geo.")
                     src_size = int(L1 ** 0.5)
                     dst_size = int(L2 ** 0.5)
 
@@ -172,8 +190,9 @@ def remap_pretrained_keys_swin(model, checkpoint_model, logger):
                     dx = np.arange(-t, t + 0.1, 1.0)
                     dy = np.arange(-t, t + 0.1, 1.0)
 
-                    logger.info("Original positions = %s" % str(x))
-                    logger.info("Target positions = %s" % str(dx))
+                    if logger is not None:
+                        logger.info("Original positions = %s" % str(x))
+                        logger.info("Target positions = %s" % str(dx))
 
                     all_rel_pos_bias = []
 
@@ -204,10 +223,11 @@ def remap_pretrained_keys_swin(model, checkpoint_model, logger):
     return checkpoint_model
 
 
-def remap_pretrained_keys_vit(model, checkpoint_model, logger):
+def remap_pretrained_keys_vit(model, checkpoint_model, logger=None):
     # Duplicate shared rel_pos_bias to each layer
     if getattr(model, 'use_rel_pos_bias', False) and "rel_pos_bias.relative_position_bias_table" in checkpoint_model:
-        logger.info("Expand the shared relative position embedding to each transformer block.")
+        if logger is not None:
+            logger.info("Expand the shared relative position embedding to each transformer block.")
     num_layers = model.get_num_layers()
     rel_pos_bias = checkpoint_model["rel_pos_bias.relative_position_bias_table"]
     for i in range(num_layers):
@@ -231,7 +251,8 @@ def remap_pretrained_keys_vit(model, checkpoint_model, logger):
             src_size = int((src_num_pos - num_extra_tokens) ** 0.5)
             dst_size = int((dst_num_pos - num_extra_tokens) ** 0.5)
             if src_size != dst_size:
-                logger.info("Position interpolate for %s from %dx%d to %dx%d" % (key, src_size, src_size, dst_size, dst_size))
+                if logger is not None:
+                    logger.info("Position interpolate for %s from %dx%d to %dx%d" % (key, src_size, src_size, dst_size, dst_size))
                 extra_tokens = rel_pos_bias[-num_extra_tokens:, :]
                 rel_pos_bias = rel_pos_bias[:-num_extra_tokens, :]
 
@@ -265,8 +286,9 @@ def remap_pretrained_keys_vit(model, checkpoint_model, logger):
                 dx = np.arange(-t, t + 0.1, 1.0)
                 dy = np.arange(-t, t + 0.1, 1.0)
 
-                logger.info("Original positions = %s" % str(x))
-                logger.info("Target positions = %s" % str(dx))
+                if logger is not None:
+                    logger.info("Original positions = %s" % str(x))
+                    logger.info("Target positions = %s" % str(dx))
 
                 all_rel_pos_bias = []
 
